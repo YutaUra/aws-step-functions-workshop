@@ -4,11 +4,16 @@ import * as sfn from "aws-cdk-lib/aws-stepfunctions";
 import * as tasks from "aws-cdk-lib/aws-stepfunctions-tasks";
 import * as lambda from "aws-cdk-lib/aws-lambda";
 import * as nodejs from "aws-cdk-lib/aws-lambda-nodejs";
+import * as s3 from "aws-cdk-lib/aws-s3";
 import { join } from "path";
 
 export class AwsStepFunctionsWorkshopStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props?: cdk.StackProps) {
     super(scope, id, props);
+
+    const bucket = new s3.Bucket(this, "Bucket", {
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+    });
 
     const parseSitemapLambda = new nodejs.NodejsFunction(
       this,
@@ -30,8 +35,13 @@ export class AwsStepFunctionsWorkshopStack extends cdk.Stack {
         },
         timeout: cdk.Duration.minutes(3),
         memorySize: 1024,
+        environment: {
+          BUCKET_NAME: bucket.bucketName,
+        },
       }
     );
+
+    bucket.grantPut(pictureSiteLambda);
 
     new sfn.StateMachine(this, "StateMachine", {
       definition: sfn.Chain.start(
@@ -41,9 +51,10 @@ export class AwsStepFunctionsWorkshopStack extends cdk.Stack {
         })
       ).next(
         new sfn.Map(this, "Map", {
-          maxConcurrency: 5,
+          maxConcurrency: 20,
           parameters: {
             "url.$": "$$.Map.Item.Value",
+            "id.$": "$$.Execution.StartTime",
           },
         }).iterator(
           new tasks.LambdaInvoke(this, "PictureSite", {
